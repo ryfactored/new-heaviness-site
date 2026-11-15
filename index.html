@@ -52,7 +52,7 @@ footer{margin-top:12px;font-size:14px}
 <h1 class="brand"><img src="header.png" alt="New Heaviness" width="1400" height="260"></h1>
 <p>The best new heavy music videos, hand-picked and updated regularly. Metal, hardcore, punk, and rock.</p>
 </div>
-<div class="player"><iframe id="player" src="https://www.youtube-nocookie.com/embed/videoseries?list=PLQJf2JuUxsz0" title="New Heaviness: Latest" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>
+<div class="player"><div id="player"></div><noscript><iframe src="https://www.youtube-nocookie.com/embed/videoseries?list=PLQJf2JuUxsz0" title="New Heaviness: Latest" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></noscript></div>
 <section aria-labelledby="songs-label">
 <div class="bar"><span class="label"><span id="songs-label">On the playlist</span><span id="updated"></span></span><span class="tools"><span class="sort" role="group" aria-label="Order" id="sort" hidden><button type="button" data-sort="new" aria-pressed="true">New</button><button type="button" data-sort="popular" aria-pressed="false">Popular</button></span><a id="all" href="https://www.youtube.com/playlist?list=PLQJf2JuUxsz0">Open the playlist on YouTube</a></span></div>
 <ul class="grid" id="grid"></ul>
@@ -64,7 +64,7 @@ footer{margin-top:12px;font-size:14px}
 (function () {
   var LIST = "PLQJf2JuUxsz0", FIRST = 24;
   var grid = document.getElementById("grid"), more = document.getElementById("more");
-  var player = document.getElementById("player"), all = document.getElementById("all");
+  var all = document.getElementById("all");
   var sortBox = document.getElementById("sort");
   var songs = [], items = [], shownSongs = 0, next = 0, mode = "new";
 
@@ -154,7 +154,70 @@ footer{margin-top:12px;font-size:14px}
       for (var i = 1; i < items.length && items[i].song; i++) firstWeek++;
     }
     render(Math.max(FIRST, firstWeek));
+    queue();
   }
+
+  // The player plays in the order on screen, through the YouTube IFrame API.
+  // A queue holds at most 200 videos, so it starts from the chosen video.
+  var MAX_QUEUE = 200, yt = null, ytReady = false, playWhenCued = false, fallback = false;
+
+  function order() {
+    return items.filter(function (it) { return it.song; }).map(function (it) { return it.song.id; });
+  }
+
+  // Without the API (blocked or slow), a plain embed with the same order.
+  function embed(ids, autoplay) {
+    if (!ids.length) return;
+    var frame = document.getElementById("player");
+    if (frame.tagName !== "IFRAME") {
+      var f = document.createElement("iframe");
+      f.id = "player"; f.title = "New Heaviness player"; f.allowFullscreen = true;
+      f.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+      f.referrerPolicy = "strict-origin-when-cross-origin";
+      frame.replaceWith(f); frame = f;
+    }
+    frame.src = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(ids[0]) + "?playlist=" +
+      ids.slice(0, MAX_QUEUE).map(encodeURIComponent).join(",") + (autoplay ? "&autoplay=1" : "");
+  }
+
+  function cue(ids, at, autoplay) {
+    playWhenCued = autoplay;
+    yt.cuePlaylist(ids, 0, at || 0);
+    // In case the player reports no "cued" state (e.g. the same list again).
+    if (autoplay) setTimeout(function () { if (playWhenCued) { playWhenCued = false; yt.playVideo(); } }, 1500);
+  }
+
+  function play(id) {
+    var ids = order(), slice = ids.slice(Math.max(0, ids.indexOf(id)), Math.max(0, ids.indexOf(id)) + MAX_QUEUE);
+    if (ytReady) cue(slice, 0, true); else embed(slice, true);
+  }
+
+  // After a reorder: a video that is playing or paused keeps its place, with the new order behind it.
+  function queue() {
+    if (!items.length) return;
+    var ids = order();
+    if (!ytReady) { if (fallback) embed(ids, false); return; }
+    var state = yt.getPlayerState();
+    if (state !== 1 && state !== 2 && state !== 3) { cue(ids.slice(0, MAX_QUEUE), 0, false); return; }
+    var current = (yt.getVideoData() || {}).video_id, i = Math.max(0, ids.indexOf(current));
+    cue(ids.slice(i, i + MAX_QUEUE), yt.getCurrentTime() || 0, state !== 2);
+  }
+
+  window.onYouTubeIframeAPIReady = function () {
+    if (fallback) return;
+    yt = new YT.Player("player", {
+      host: "https://www.youtube-nocookie.com",
+      playerVars: { playsinline: 1, rel: 0 },
+      events: {
+        onReady: function () { ytReady = true; yt.getIframe().title = "New Heaviness player"; queue(); },
+        onStateChange: function (e) { if (e.data === 5 && playWhenCued) { playWhenCued = false; yt.playVideo(); } }
+      }
+    });
+  };
+  var api = document.createElement("script");
+  api.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(api);
+  setTimeout(function () { if (!yt) { fallback = true; queue(); } }, 8000);
 
   sortBox.addEventListener("click", function (e) {
     var b = e.target.closest("button[data-sort]");
@@ -165,13 +228,11 @@ footer{margin-top:12px;font-size:14px}
     var a = e.target.closest("a.card");
     if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
-    var pos = +a.dataset.pos;
-    player.src = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(songs[pos].id) +
-      "?list=" + LIST + "&index=" + (pos + 1) + "&autoplay=1";
+    play(songs[+a.dataset.pos].id);
     var cur = grid.querySelector('[aria-current="true"]');
     if (cur) cur.removeAttribute("aria-current");
     a.setAttribute("aria-current", "true");
-    player.scrollIntoView({ behavior: "smooth", block: "center" });
+    document.querySelector(".player").scrollIntoView({ behavior: "smooth", block: "center" });
   });
 
   more.addEventListener("click", function () { render(songs.length); });
