@@ -23,7 +23,14 @@ main{max-width:1040px;margin:0 auto;padding:48px 20px 40px;display:flex;flex-dir
 .bar{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid var(--rule)}
 .label{font-family:"Space Grotesk",sans-serif;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--label)}
 .bar a{font-size:15px}
+.tools{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.sort{display:flex;gap:4px}
+.sort button{font:inherit;font-size:15px;color:var(--label);background:none;border:0;border-bottom:1px solid transparent;padding:0 8px;min-height:44px;cursor:pointer}
+.sort button:hover{color:var(--text)}
+.sort button[aria-pressed="true"]{color:var(--text);border-bottom-color:var(--steel)}
 .grid{list-style:none;margin:24px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:28px 20px}
+.week{grid-column:1/-1;padding-bottom:8px;border-bottom:1px solid var(--rule)}
+.week:not(:first-child){margin-top:20px}
 .card{display:flex;flex-direction:column;gap:10px;min-width:0;text-decoration:none;color:inherit}
 .thumb{display:block;aspect-ratio:16/9;overflow:hidden;background:#161a22;outline:2px solid transparent;outline-offset:3px;transition:outline-color .15s}
 .thumb img{display:block;width:100%;height:100%;object-fit:cover;opacity:.88;transition:opacity .15s}
@@ -47,7 +54,7 @@ footer{margin-top:12px;font-size:14px}
 </div>
 <div class="player"><iframe id="player" src="https://www.youtube-nocookie.com/embed/videoseries?list=PLQJf2JuUxsz0" title="New Heaviness: Latest" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>
 <section aria-labelledby="songs-label">
-<div class="bar"><span class="label"><span id="songs-label">On the playlist</span><span id="updated"></span></span><a id="all" href="https://www.youtube.com/playlist?list=PLQJf2JuUxsz0">Open the playlist on YouTube</a></div>
+<div class="bar"><span class="label"><span id="songs-label">On the playlist</span><span id="updated"></span></span><span class="tools"><span class="sort" role="group" aria-label="Order" id="sort" hidden><button type="button" data-sort="new" aria-pressed="true">New</button><button type="button" data-sort="popular" aria-pressed="false">Popular</button></span><a id="all" href="https://www.youtube.com/playlist?list=PLQJf2JuUxsz0">Open the playlist on YouTube</a></span></div>
 <ul class="grid" id="grid"></ul>
 <div class="more-wrap"><button class="more" id="more" type="button" hidden>Show all</button></div>
 </section>
@@ -58,7 +65,8 @@ footer{margin-top:12px;font-size:14px}
   var LIST = "PLQJf2JuUxsz0", FIRST = 24;
   var grid = document.getElementById("grid"), more = document.getElementById("more");
   var player = document.getElementById("player"), all = document.getElementById("all");
-  var songs = [], shown = 0;
+  var sortBox = document.getElementById("sort");
+  var songs = [], items = [], shownSongs = 0, next = 0, mode = "new";
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -67,10 +75,44 @@ footer{margin-top:12px;font-size:14px}
     return e;
   }
 
-  function card(s, i) {
+  function day(iso) {
+    return new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  }
+
+  // The Sunday that starts the week of an ISO date (UTC), so one week's run and its retries group together.
+  function weekOf(iso) {
+    var d = new Date(iso + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+    return d.toISOString().slice(0, 10);
+  }
+
+  function byViews(a, b) { return (b.vpd || 0) - (a.vpd || 0) || a.pos - b.pos; }
+
+  // The grid's contents for the current order: song entries, plus week headings for New.
+  function build() {
+    if (mode === "popular") return songs.slice().sort(byViews).map(function (s) { return { song: s }; });
+    if (!songs[0] || !songs[0].added) return songs.map(function (s) { return { song: s }; });
+    var weeks = {}, keys = [];
+    songs.forEach(function (s) {
+      var k = weekOf(s.added);
+      if (!weeks[k]) { weeks[k] = []; keys.push(k); }
+      weeks[k].push(s);
+    });
+    keys.sort().reverse();
+    var out = [];
+    keys.forEach(function (k) {
+      var group = weeks[k].sort(byViews);
+      var first = group.reduce(function (m, s) { return s.added < m ? s.added : m; }, group[0].added);
+      out.push({ heading: "Added " + day(first) + " · " + group.length + (group.length === 1 ? " video" : " videos") });
+      group.forEach(function (s) { out.push({ song: s }); });
+    });
+    return out;
+  }
+
+  function card(s) {
     var li = el("li"), a = el("a", "card"), thumb = el("span", "thumb"), img = el("img"), meta = el("span", "meta");
     a.href = "https://www.youtube.com/watch?v=" + encodeURIComponent(s.id) + "&list=" + LIST;
-    a.dataset.index = i;
+    a.dataset.pos = s.pos;
     a.setAttribute("aria-label", "Play " + s.artist + " – " + s.song);
     img.src = "https://i.ytimg.com/vi/" + encodeURIComponent(s.id) + "/mqdefault.jpg";
     img.alt = ""; img.loading = "lazy"; img.width = 320; img.height = 180;
@@ -81,21 +123,51 @@ footer{margin-top:12px;font-size:14px}
     return li;
   }
 
-  function render(n) {
-    var frag = document.createDocumentFragment(), end = Math.min(n, songs.length);
-    for (var i = shown; i < end; i++) frag.appendChild(card(songs[i], i));
+  // Adds entries until `limit` songs are showing (a heading is added with the songs under it).
+  function render(limit) {
+    var frag = document.createDocumentFragment();
+    while (next < items.length) {
+      var it = items[next];
+      if (shownSongs >= limit) break;
+      if (it.heading) {
+        frag.appendChild(el("li", "week label", it.heading));
+      } else {
+        frag.appendChild(card(it.song));
+        shownSongs++;
+      }
+      next++;
+    }
     grid.appendChild(frag);
-    shown = end;
-    more.hidden = shown >= songs.length;
+    more.hidden = shownSongs >= songs.length;
   }
+
+  function show(newMode) {
+    mode = newMode;
+    Array.prototype.forEach.call(sortBox.querySelectorAll("button"), function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.sort === mode));
+    });
+    grid.textContent = "";
+    items = build(); next = 0; shownSongs = 0;
+    // Show at least the whole newest week.
+    var firstWeek = 0;
+    if (items[0] && items[0].heading) {
+      for (var i = 1; i < items.length && items[i].song; i++) firstWeek++;
+    }
+    render(Math.max(FIRST, firstWeek));
+  }
+
+  sortBox.addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-sort]");
+    if (b && b.dataset.sort !== mode) show(b.dataset.sort);
+  });
 
   grid.addEventListener("click", function (e) {
     var a = e.target.closest("a.card");
     if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
-    var i = +a.dataset.index;
-    player.src = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(songs[i].id) +
-      "?list=" + LIST + "&index=" + (i + 1) + "&autoplay=1";
+    var pos = +a.dataset.pos;
+    player.src = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(songs[pos].id) +
+      "?list=" + LIST + "&index=" + (pos + 1) + "&autoplay=1";
     var cur = grid.querySelector('[aria-current="true"]');
     if (cur) cur.removeAttribute("aria-current");
     a.setAttribute("aria-current", "true");
@@ -109,13 +181,12 @@ footer{margin-top:12px;font-size:14px}
     .then(function (d) {
       songs = d.songs || [];
       if (!songs.length) return;
+      songs.forEach(function (s, i) { s.pos = i; });
       more.textContent = "Show all " + songs.length;
       all.textContent = "All " + songs.length + " on YouTube";
-      if (d.updated) {
-        var day = new Date(d.updated + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-        document.getElementById("updated").textContent = " · Updated " + day;
-      }
-      render(FIRST);
+      if (d.updated) document.getElementById("updated").textContent = " · Updated " + day(d.updated);
+      sortBox.hidden = songs[0].vpd === undefined;
+      show("new");
     })
     .catch(function () {});
 })();

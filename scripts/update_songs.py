@@ -1,6 +1,9 @@
 """Write songs.json: the videos on the New Heaviness: Latest playlist, in playlist order,
 and the date new videos last arrived ("updated").
 
+Each song has the date it was added to the playlist ("added") and its views per day since
+upload ("vpd"), which the home page uses for its New and Popular orders.
+
 Run by .github/workflows/songs.yml. Needs YOUTUBE_API_KEY (a YouTube Data API v3 key).
 """
 import datetime
@@ -12,6 +15,7 @@ import urllib.request
 
 PLAYLIST_ID = "PLQJf2JuUxsz0"
 API = "https://www.googleapis.com/youtube/v3/playlistItems"
+VIDEOS_API = "https://www.googleapis.com/youtube/v3/videos"
 
 # Bracketed bits like "(Official Music Video)", "[4K]", "| Napalm Records".
 NOISE = re.compile(
@@ -44,23 +48,50 @@ def split_title(title: str, channel: str) -> tuple[str, str]:
     return artist.strip(), song.strip("\"'“”‘’ ")
 
 
+def get(url: str, query: dict) -> dict:
+    with urllib.request.urlopen(f"{url}?{urllib.parse.urlencode(query)}", timeout=30) as r:
+        return json.load(r)
+
+
+def parse_time(value: str) -> datetime.datetime:
+    return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def views_per_day(key: str, songs: list[dict], uploaded: dict[str, str]) -> None:
+    """Set each song's "vpd": views since upload divided by days since upload (at least 1)."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for i in range(0, len(songs), 50):
+        batch = songs[i:i + 50]
+        data = get(VIDEOS_API, {"part": "statistics", "id": ",".join(s["id"] for s in batch), "key": key})
+        views = {v["id"]: int(v.get("statistics", {}).get("viewCount", 0)) for v in data.get("items", [])}
+        for s in batch:
+            up = uploaded.get(s["id"])
+            days = max(1.0, (now - parse_time(up)).total_seconds() / 86400) if up else 1.0
+            s["vpd"] = round(views.get(s["id"], 0) / days)
+
+
 def fetch(key: str) -> list[dict]:
-    songs, page = [], None
+    songs, uploaded, page = [], {}, None
     while True:
-        q = {"part": "snippet", "maxResults": 50, "playlistId": PLAYLIST_ID, "key": key}
+        q = {"part": "snippet,contentDetails", "maxResults": 50, "playlistId": PLAYLIST_ID, "key": key}
         if page:
             q["pageToken"] = page
-        with urllib.request.urlopen(f"{API}?{urllib.parse.urlencode(q)}", timeout=30) as r:
-            data = json.load(r)
+        data = get(API, q)
         for item in data.get("items", []):
             s = item["snippet"]
             if s.get("title") in ("Private video", "Deleted video"):
                 continue
+            vid = s["resourceId"]["videoId"]
             artist, song = split_title(s["title"], s.get("videoOwnerChannelTitle", ""))
-            songs.append({"id": s["resourceId"]["videoId"], "artist": artist, "song": song})
+            # snippet.publishedAt on a playlist item is when it was added to the playlist.
+            songs.append({"id": vid, "artist": artist, "song": song, "added": s["publishedAt"][:10]})
+            if item.get("contentDetails", {}).get("videoPublishedAt"):
+                uploaded[vid] = item["contentDetails"]["videoPublishedAt"]
         page = data.get("nextPageToken")
         if not page:
-            return songs
+            break
+    views_per_day(key, songs, uploaded)
+    return songs
 
 
 def main() -> None:
