@@ -113,7 +113,8 @@ footer{margin-top:12px;font-size:14px}
     keys.sort().reverse();
     var out = [];
     keys.forEach(function (k) {
-      var group = weeks[k].sort(byViews);
+      // The first video on the playlist is the week's featured pick (chosen in the weekly PR): it leads its week.
+      var group = weeks[k].sort(function (a, b) { return (a.pos === 0 ? -1 : b.pos === 0 ? 1 : byViews(a, b)); });
       var first = group.reduce(function (m, s) { return s.added < m ? s.added : m; }, group[0].added);
       out.push({ heading: "Added " + day(first) + " · " + group.length + (group.length === 1 ? " video" : " videos") });
       group.forEach(function (s) { out.push({ song: s }); });
