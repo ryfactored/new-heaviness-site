@@ -1,7 +1,9 @@
-"""Write songs.json: the videos on the New Heaviness: Latest playlist, in playlist order.
+"""Write songs.json: the videos on the New Heaviness: Latest playlist, in playlist order,
+and the date new videos last arrived ("updated").
 
 Run by .github/workflows/songs.yml. Needs YOUTUBE_API_KEY (a YouTube Data API v3 key).
 """
+import datetime
 import json
 import os
 import re
@@ -63,10 +65,20 @@ def fetch(key: str) -> list[dict]:
 
 def main() -> None:
     songs = fetch(os.environ["YOUTUBE_API_KEY"])
+    try:
+        with open("songs.json", encoding="utf-8") as f:
+            previous = json.load(f)
+    except (OSError, ValueError):
+        previous = {}
+    seen = {s["id"] for s in previous.get("songs", [])}
+    updated = previous.get("updated")
+    # The date only moves when videos arrive, not when old ones are trimmed off Latest.
+    if not updated or any(s["id"] not in seen for s in songs):
+        updated = datetime.date.today().isoformat()
     with open("songs.json", "w", encoding="utf-8", newline="\n") as f:
-        json.dump({"playlist": PLAYLIST_ID, "songs": songs}, f, ensure_ascii=False, indent=1)
+        json.dump({"playlist": PLAYLIST_ID, "updated": updated, "songs": songs}, f, ensure_ascii=False, indent=1)
         f.write("\n")
-    print(f"{len(songs)} songs")
+    print(f"{len(songs)} songs, updated {updated}")
 
 
 if __name__ == "__main__":

@@ -47,7 +47,7 @@ footer{margin-top:12px;font-size:14px}
 </div>
 <div class="player"><iframe id="player" src="https://www.youtube-nocookie.com/embed/videoseries?list=PLQJf2JuUxsz0" title="New Heaviness: Latest" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>
 <section aria-labelledby="songs-label">
-<div class="bar"><span class="label" id="songs-label">On the playlist</span><a id="all" href="https://www.youtube.com/playlist?list=PLQJf2JuUxsz0">Open the playlist on YouTube</a></div>
+<div class="bar"><span class="label"><span id="songs-label">On the playlist</span><span id="updated"></span></span><a id="all" href="https://www.youtube.com/playlist?list=PLQJf2JuUxsz0">Open the playlist on YouTube</a></div>
 <ul class="grid" id="grid"></ul>
 <div class="more-wrap"><button class="more" id="more" type="button" hidden>Show all</button></div>
 </section>
@@ -111,6 +111,10 @@ footer{margin-top:12px;font-size:14px}
       if (!songs.length) return;
       more.textContent = "Show all " + songs.length;
       all.textContent = "All " + songs.length + " on YouTube";
+      if (d.updated) {
+        var day = new Date(d.updated + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+        document.getElementById("updated").textContent = " · Updated " + day;
+      }
       render(FIRST);
     })
     .catch(function () {});
