@@ -42,13 +42,16 @@ main{max-width:1040px;margin:0 auto;padding:48px 20px 40px;display:flex;flex-dir
 .sort button[aria-pressed="true"]{color:var(--text);border-bottom-color:var(--steel)}
 .search{display:flex;align-items:center}
 .search-btn{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;color:var(--label);background:none;border:0;cursor:pointer}
-.search-btn:hover,.search-btn:focus-visible{color:var(--text)}
-.search-box{display:flex;align-items:center;border-bottom:1px solid var(--steel)}
-.search-box input{font:inherit;font-size:15px;color:var(--text);background:transparent;border:0;outline:0;width:11em;min-height:44px;padding:0 4px}
+.search-btn:hover,.search-btn:focus-visible,.search-btn[aria-expanded="true"]{color:var(--text)}
+.search-btn{border-bottom:1px solid transparent}
+.search-btn[aria-expanded="true"]{border-bottom-color:var(--steel)}
+.search-row{display:flex;align-items:center;flex-wrap:wrap;gap:4px 16px;margin-top:16px}
+.search-box{display:flex;align-items:center;flex:1 1 260px;min-width:0;border-bottom:1px solid var(--steel)}
+.search-box input{flex:1;min-width:0;font:inherit;font-size:15px;color:var(--text);background:transparent;border:0;outline:0;min-height:44px;padding:0 4px}
 .search-box input::placeholder{color:var(--label)}
 .search-box button{font:inherit;font-size:20px;line-height:1;color:var(--label);background:none;border:0;min-width:36px;min-height:44px;cursor:pointer}
 .search-box button:hover{color:var(--text)}
-.status{margin:16px 0 0;font-size:15px;color:var(--body)}
+.status{margin:0;font-size:15px;color:var(--body)}
 .grid{list-style:none;margin:24px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:28px 20px}
 .week{grid-column:1/-1;padding-bottom:8px;border-bottom:1px solid var(--rule)}
 .week:not(:first-child){margin-top:20px}
@@ -76,8 +79,8 @@ footer{margin-top:12px;font-size:14px}
 </div>
 <div class="player"><div id="player"></div><noscript><iframe src="https://www.youtube-nocookie.com/embed/videoseries?list=PLQJf2JuUxsz0" title="New Heaviness: Latest" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></noscript></div>
 <section aria-labelledby="songs-label">
-<div class="bar"><span class="label"><span id="songs-label">On the playlist</span><span id="updated"></span></span><span class="tools"><span class="search" id="search" hidden><button type="button" class="search-btn" id="search-open" aria-label="Search the playlist" title="Search (/)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></button><span class="search-box" id="search-box" hidden><input id="q" type="text" placeholder="Band or song" aria-label="Search the playlist by band or song" autocomplete="off" spellcheck="false"><button type="button" id="search-clear" aria-label="Clear search">×</button></span></span><span class="sort" role="group" aria-label="Order" id="sort" hidden><button type="button" data-sort="new" aria-pressed="true">New</button><button type="button" data-sort="popular" aria-pressed="false">Popular</button></span><a id="all" href="https://www.youtube.com/playlist?list=PLQJf2JuUxsz0">Open the playlist on YouTube</a></span></div>
-<p class="status" id="status" role="status" aria-live="polite" hidden></p>
+<div class="bar"><span class="label"><span id="songs-label">On the playlist</span><span id="updated"></span></span><span class="tools"><span class="search" id="search" hidden><button type="button" class="search-btn" id="search-open" aria-label="Search the playlist" aria-expanded="false" aria-controls="search-row" title="Search (/)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></button></span><span class="sort" role="group" aria-label="Order" id="sort" hidden><button type="button" data-sort="new" aria-pressed="true">New</button><button type="button" data-sort="popular" aria-pressed="false">Popular</button></span><a id="all" href="https://www.youtube.com/playlist?list=PLQJf2JuUxsz0">Open the playlist on YouTube</a></span></div>
+<div class="search-row" id="search-row" hidden><span class="search-box"><input id="q" type="text" placeholder="Band or song" aria-label="Search the playlist by band or song" autocomplete="off" spellcheck="false"><button type="button" id="search-clear" aria-label="Clear search">×</button></span><p class="status" id="status" role="status" aria-live="polite"></p></div>
 <ul class="grid" id="grid"></ul>
 <div class="more-wrap"><button class="more" id="more" type="button" hidden>Show all</button></div>
 </section>
@@ -91,7 +94,7 @@ footer{margin-top:12px;font-size:14px}
   var sortBox = document.getElementById("sort");
   var songs = [], items = [], shownSongs = 0, totalSongs = 0, next = 0, mode = "new", query = "";
   var search = document.getElementById("search"), openBtn = document.getElementById("search-open");
-  var box = document.getElementById("search-box"), input = document.getElementById("q");
+  var box = document.getElementById("search-row"), input = document.getElementById("q");
   var status = document.getElementById("status");
 
   // Lowercase without accents, so "touche" finds "Touché Amoré".
@@ -179,13 +182,12 @@ footer{margin-top:12px;font-size:14px}
     items = build(); next = 0; shownSongs = 0;
     totalSongs = items.filter(function (it) { return it.song; }).length;
     if (query) {
-      status.hidden = false;
       status.textContent = totalSongs ? totalSongs + (totalSongs === 1 ? " match" : " matches")
         : "Nothing on Latest matches “" + input.value.trim() + "”";
       render(Infinity);
       return;
     }
-    status.hidden = true;
+    status.textContent = "";
     // Show at least the whole newest week.
     var firstWeek = 0;
     if (items[0] && items[0].heading) {
@@ -203,12 +205,13 @@ footer{margin-top:12px;font-size:14px}
     queue();
   }
 
+  // The search opens as its own row under the header, so nothing in the header moves.
   function openSearch() {
-    openBtn.hidden = true; box.hidden = false; input.focus();
+    box.hidden = false; openBtn.setAttribute("aria-expanded", "true"); input.focus();
   }
 
   function closeSearch() {
-    input.value = ""; box.hidden = true; openBtn.hidden = false;
+    input.value = ""; box.hidden = true; openBtn.setAttribute("aria-expanded", "false");
     if (query) { query = ""; draw(); }
     openBtn.focus();
   }
@@ -294,7 +297,7 @@ footer{margin-top:12px;font-size:14px}
 
   more.addEventListener("click", function () { render(songs.length); });
 
-  openBtn.addEventListener("click", openSearch);
+  openBtn.addEventListener("click", function () { if (box.hidden) openSearch(); else closeSearch(); });
   document.getElementById("search-clear").addEventListener("click", closeSearch);
   input.addEventListener("input", function () {
     var q = fold(input.value.trim());
